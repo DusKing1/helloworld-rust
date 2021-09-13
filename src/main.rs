@@ -1,8 +1,3 @@
-//! Turns the user LED on
-//!
-//! Listens for interrupts on the pa7 pin. On any rising or falling edge, toggles
-//! the pc13 pin (which is connected to the LED on the blue pill board, hence the `led` name).
-
 #![no_main]
 #![no_std]
 
@@ -17,7 +12,7 @@ use embedded_hal::digital::v2::OutputPin;
 use stm32f1xx_hal::gpio::*;
 use stm32f1xx_hal::{pac, prelude::*,serial::{self,Serial}};
 
-
+// Ugly approach, need to find a better way to do this
 static mut LED1: MaybeUninit<stm32f1xx_hal::gpio::gpioa::PA6<Output<PushPull>>> =
     MaybeUninit::uninit();
 static mut LED2: MaybeUninit<stm32f1xx_hal::gpio::gpioa::PA7<Output<PushPull>>> =
@@ -122,7 +117,7 @@ fn main() -> ! {
     let mut afio = p.AFIO.constrain(&mut rcc.apb2);
 
     {
-        // the scope ensures that the key1 reference is dropped before the first ISR can be executed.
+        // the scope ensures that the key1234 reference is dropped before the first ISR can be executed.
 
         let led1 = unsafe { &mut *LED1.as_mut_ptr() };
         *led1 = gpioa.pa6.into_push_pull_output(&mut gpioa.crl);
@@ -191,8 +186,7 @@ fn main() -> ! {
     while i < init_info.len() {
         block!(tx.write(init_info[i])).unwrap();
         i = i+1;
-    }
-    // block!(tx.write(init_info[0])).ok();
+    } // Showing the code is running on rustlang not C
 
     unsafe {
         pac::NVIC::unmask(pac::Interrupt::EXTI1);
