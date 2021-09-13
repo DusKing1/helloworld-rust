@@ -1,0 +1,8 @@
+source [find stlink.cfg]
+source [find stm32f1x.cfg]
+adapter_khz 500
+
+# Make the initial connection and halt the board
+init
+targets
+reset halt
