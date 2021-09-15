@@ -1,3 +1,4 @@
+// #![deny(unsafe_code)]
 #![no_main]
 #![no_std]
 
@@ -5,22 +6,20 @@ use panic_halt as _;
 
 use nb::block;
 
+// use cortex_m::asm;
 use core::mem::MaybeUninit;
 use cortex_m_rt::entry;
 use pac::interrupt;
-use embedded_hal::digital::v2::OutputPin;
-use stm32f1xx_hal::gpio::*;
-use stm32f1xx_hal::{pac, prelude::*,serial::{self,Serial}};
+use stm32f1xx_hal::{
+    pac,
+    gpio::*,
+    prelude::*,
+    pwm::Channel,
+    time::U32Ext,
+    timer::{Tim3NoRemap, Timer},
+    serial::{self,Serial},
+};
 
-// Ugly approach, need to find a better way to do this
-static mut LED1: MaybeUninit<stm32f1xx_hal::gpio::gpioa::PA6<Output<PushPull>>> =
-    MaybeUninit::uninit();
-static mut LED2: MaybeUninit<stm32f1xx_hal::gpio::gpioa::PA7<Output<PushPull>>> =
-    MaybeUninit::uninit();
-static mut LED3: MaybeUninit<stm32f1xx_hal::gpio::gpiob::PB0<Output<PushPull>>> =
-    MaybeUninit::uninit();
-static mut LED4: MaybeUninit<stm32f1xx_hal::gpio::gpiob::PB1<Output<PushPull>>> =
-    MaybeUninit::uninit();
 static mut KEY1: MaybeUninit<stm32f1xx_hal::gpio::gpioa::PA1<Input<PullDown>>> =
     MaybeUninit::uninit();
 static mut KEY2: MaybeUninit<stm32f1xx_hal::gpio::gpioa::PA2<Input<PullDown>>> =
@@ -30,76 +29,126 @@ static mut KEY3: MaybeUninit<stm32f1xx_hal::gpio::gpioa::PA3<Input<PullDown>>> =
 static mut KEY4: MaybeUninit<stm32f1xx_hal::gpio::gpioa::PA4<Input<PullDown>>> =
     MaybeUninit::uninit();
 
+static BREATHING_TABLE:[u16; 128] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 3, 3, 3, 5, 5, 7, 7, 9, 9,
+    11, 11, 13, 15, 15, 17, 19, 21, 21, 23, 25, 27, 29, 31, 33, 35, 37,
+    41, 43, 45, 49, 50, 52, 56, 58, 62, 66, 68, 72 ,76 ,80 ,84 ,88, 92, 
+    96, 100, 103, 109, 113, 119, 123, 129, 133, 139, 145, 150, 156, 162,
+    168, 174, 180, 186, 192, 200, 205, 211, 219, 227, 233, 241, 247, 254,
+    262, 270, 278, 284, 292, 300, 307, 315, 323, 331, 339, 345, 352, 360,
+    368 ,376, 382, 390, 398, 403, 411, 417, 423, 429, 437, 443, 447, 452,
+    458, 462, 468, 472, 476, 480, 484, 486, 490, 492, 494, 496, 498, 500,
+    500, 500];
 
-#[interrupt]
-fn EXTI1() {
-    let led1 = unsafe { &mut *LED1.as_mut_ptr() };
-    let key1 = unsafe { &mut *KEY1.as_mut_ptr() };
+static mut IA:usize = 1;
+static mut IB:usize = 33;
+static mut IC:usize = 65;
+static mut ID:usize = 97;
+static mut DA:u8 = 1;
+static mut DB:u8 = 1;
+static mut DC:u8 = 1;
+static mut DD:u8 = 1;
 
-    if key1.check_interrupt() {
+static mut MODE:u8 = 1;
+static mut SPEED:u8 = 1;
 
-        // block!(Timer::syst(cortex_m::Peripherals::take().unwrap().SYST,
-        // &pac::Peripherals::take().unwrap()
-        // .RCC.constrain().cfgr
-        // .freeze(&mut pac::Peripherals::take().unwrap().FLASH.constrain().acr))
-        // .start_count_down(50.hz()).wait()).unwrap();
-        
-        led1.toggle().unwrap();
+fn swapa() {
+    unsafe{
+        if DA==1 {
+            DA = 0;
+        } else {
+            DA = 1;
+        }
+    }
+}
 
-        // if we don't clear this bit, the ISR would trigger indefinitely
-        key1.clear_interrupt_pending_bit();
+fn swapb() {
+    unsafe{
+        if DB==1 {
+            DB = 0;
+        } else {
+            DB = 1;
+        }
+    }
+}
+
+fn swapc() {
+    unsafe{
+        if DC==1 {
+            DC = 0;
+        } else {
+            DC = 1;
+        }
+    }
+}
+
+fn swapd() {
+    unsafe{
+        if DD==1 {
+            DD = 0;
+        } else {
+            DD = 1;
+        }
     }
 }
 
 #[interrupt]
+fn EXTI1() {
+    let key1 = unsafe { &mut *KEY1.as_mut_ptr() };//change flow direction
+
+    if key1.check_interrupt() {
+
+        swapa();
+
+        swapb();
+
+        swapc();
+
+        swapd();
+
+        key1.clear_interrupt_pending_bit();
+    }
+}
+#[interrupt]
 fn EXTI2() {
-    let led2 = unsafe { &mut *LED2.as_mut_ptr() };
+
     let key2 = unsafe { &mut *KEY2.as_mut_ptr() };
 
     if key2.check_interrupt() {
 
-        // block!(Timer::syst(cortex_m::Peripherals::take().unwrap().SYST,
-        // &pac::Peripherals::take().unwrap()
-        // .RCC.constrain().cfgr
-        // .freeze(&mut pac::Peripherals::take().unwrap().FLASH.constrain().acr))
-        // .start_count_down(50.hz()).wait()).unwrap();
-        
-        led2.toggle().unwrap();
-
+        unsafe {
+            if SPEED >= 3 {
+            } else {  
+                SPEED = SPEED+1;
+            }
+        };
         key2.clear_interrupt_pending_bit();
     }
 }
-
 #[interrupt]
 fn EXTI3() {
-    let led3 = unsafe { &mut *LED3.as_mut_ptr() };
     let key3 = unsafe { &mut *KEY3.as_mut_ptr() };
     if key3.check_interrupt() {
-        led3.toggle().unwrap();
-
-        // block!(Timer::syst(cortex_m::Peripherals::take().unwrap().SYST,
-        // &pac::Peripherals::take().unwrap()
-        // .RCC.constrain().cfgr
-        // .freeze(&mut pac::Peripherals::take().unwrap().FLASH.constrain().acr))
-        // .start_count_down(50.hz()).wait()).unwrap();
-
+        unsafe {
+            if SPEED <= 1 {
+            } else {
+                SPEED = SPEED-1;
+            }
+        };
         key3.clear_interrupt_pending_bit();
     }
 }
-
 #[interrupt]
 fn EXTI4() {
-    let led4 = unsafe { &mut *LED4.as_mut_ptr() };
     let key4 = unsafe { &mut *KEY4.as_mut_ptr() };
     if key4.check_interrupt() {
-        led4.toggle().unwrap();
-
-        // block!(Timer::syst(cortex_m::Peripherals::take().unwrap().SYST,
-        // &pac::Peripherals::take().unwrap()
-        // .RCC.constrain().cfgr
-        // .freeze(&mut pac::Peripherals::take().unwrap().FLASH.constrain().acr))
-        // .start_count_down(50.hz()).wait()).unwrap();
-
+        unsafe {
+            if MODE ==1 {
+                MODE = 0;
+            } else {
+                MODE = 1;
+            }
+        };
         key4.clear_interrupt_pending_bit();
     }
 }
@@ -107,31 +156,20 @@ fn EXTI4() {
 
 #[entry]
 fn main() -> ! {
-    // initialization phase
+    let cp = cortex_m::Peripherals::take().unwrap();
     let p = pac::Peripherals::take().unwrap();
-    let _cp = cortex_m::peripheral::Peripherals::take().unwrap();
 
+    let mut flash = p.FLASH.constrain();
     let mut rcc = p.RCC.constrain();
-    let mut gpioa = p.GPIOA.split(&mut rcc.apb2);
-    let mut gpiob = p.GPIOB.split(&mut rcc.apb2);
+
+    let clocks = rcc.cfgr.freeze(&mut flash.acr);
+
     let mut afio = p.AFIO.constrain(&mut rcc.apb2);
 
+    let mut gpioa = p.GPIOA.split(&mut rcc.apb2);
+    let mut gpiob = p.GPIOB.split(&mut rcc.apb2);
+
     {
-        // the scope ensures that the key1234 reference is dropped before the first ISR can be executed.
-
-        let led1 = unsafe { &mut *LED1.as_mut_ptr() };
-        *led1 = gpioa.pa6.into_push_pull_output(&mut gpioa.crl);
-        led1.set_high().unwrap();
-        let led2 = unsafe { &mut *LED2.as_mut_ptr() };
-        *led2 = gpioa.pa7.into_push_pull_output(&mut gpioa.crl);
-        led2.set_high().unwrap();
-        let led3 = unsafe { &mut *LED3.as_mut_ptr() };
-        *led3 = gpiob.pb0.into_push_pull_output(&mut gpiob.crl);
-        led3.set_high().unwrap();
-        let led4 = unsafe { &mut *LED4.as_mut_ptr() };
-        *led4 = gpiob.pb1.into_push_pull_output(&mut gpiob.crl);
-        led4.set_high().unwrap();
-
         let key1 = unsafe { &mut *KEY1.as_mut_ptr() };
         *key1 = gpioa.pa1.into_pull_down_input(&mut gpioa.crl);
         key1.make_interrupt_source(&mut afio);
@@ -158,12 +196,26 @@ fn main() -> ! {
 
     } // initialization ends here
 
-    let mut flash = p.FLASH.constrain();
-    let clocks = rcc.cfgr.freeze(&mut flash.acr);
+
+    let c1 = gpioa.pa6.into_alternate_push_pull(&mut gpioa.crl);
+    let c2 = gpioa.pa7.into_alternate_push_pull(&mut gpioa.crl);
+    let c3 = gpiob.pb0.into_alternate_push_pull(&mut gpiob.crl);
+    let c4 = gpiob.pb1.into_alternate_push_pull(&mut gpiob.crl);
+    let pins = (c1, c2, c3,c4);
+
+    let mut pwm = 
+        Timer::tim3(p.TIM3, &clocks, &mut rcc.apb1)
+        .pwm::<Tim3NoRemap, _, _, _>(pins, &mut afio.mapr,16.khz(),);
+
+    pwm.enable(Channel::C1);
+    pwm.enable(Channel::C2);
+    pwm.enable(Channel::C3);
+    pwm.enable(Channel::C4);
+
     let tx = gpioa.pa9.into_alternate_push_pull(&mut gpioa.crh);
     let rx = gpioa.pa10;
 
-    // let timer = Timer::syst(cp.SYST, &clocks).start_count_down(50.hz());
+    let mut timer = Timer::syst(cp.SYST, &clocks).start_count_down(800.hz());
 
     let serial = Serial::usart1(
         p.USART1,
@@ -173,7 +225,6 @@ fn main() -> ! {
             .baudrate(115200.bps())
             .stopbits(serial::StopBits::STOP1)
             .parity_none(),
-            //.parity_odd(),
         clocks,
         &mut rcc.apb2,
     );
@@ -188,6 +239,8 @@ fn main() -> ! {
         i = i+1;
     } // Showing the code is running on rustlang not C
 
+    // timer.start_count_down(800.hz());
+
     unsafe {
         pac::NVIC::unmask(pac::Interrupt::EXTI1);
         pac::NVIC::unmask(pac::Interrupt::EXTI2);
@@ -195,5 +248,309 @@ fn main() -> ! {
         pac::NVIC::unmask(pac::Interrupt::EXTI4);
     }
 
-    loop {}
+    loop {
+        // breath_a();
+        unsafe { // this is for LED A
+            if DA ==1 && IA < 127 {
+                IA = IA + 1;
+                if MODE ==1 {
+                    pwm.set_duty(Channel::C1, BREATHING_TABLE[IA]);
+                } else {
+                    pwm.set_duty(Channel::C1, 1);
+                }
+                if SPEED == 1 {
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==2 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==3 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                }
+            } else if DA == 1 && IA >= 127 {
+                DA = 0;
+                IA= IA - 1;
+                if MODE ==1 {
+                    pwm.set_duty(Channel::C1, BREATHING_TABLE[IA]);
+                } else {
+                    pwm.set_duty(Channel::C1, 1);
+                }
+                if SPEED == 1 {
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==2 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==3 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                }
+            } else if DA==0 && IA > 0 {
+                IA = IA - 1;
+                if MODE ==1 {
+                    pwm.set_duty(Channel::C1, BREATHING_TABLE[IA]);
+                } else {
+                    pwm.set_duty(Channel::C1, 480);
+                }
+                if SPEED == 1 {
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==2 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==3 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                }
+            } else if DA==0 && IA<=0{
+                DA = 1;
+                IA = IA + 1;
+                if MODE ==1 {
+                    pwm.set_duty(Channel::C1, BREATHING_TABLE[IA]);
+                } else {
+                    pwm.set_duty(Channel::C1, 480);
+                }
+                if SPEED == 1 {
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==2 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==3 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                }
+            }  
+        //};
+
+        //unsafe{// this is for LED B
+            if DB ==1 && IB < 127 {
+                IB = IB + 1;
+                if MODE==1 {
+                    pwm.set_duty(Channel::C2, BREATHING_TABLE[IB]);
+                } else {
+                    pwm.set_duty(Channel::C2, 1);
+                }
+                if SPEED == 1 {
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==2 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==3 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                }
+            } else if DB==1 && IB >= 127 {
+                DB = 0;
+                IB= IB - 1;
+                if MODE==1 {
+                    pwm.set_duty(Channel::C2, BREATHING_TABLE[IB]);
+                } else {
+                    pwm.set_duty(Channel::C2, 1);
+                }
+                if SPEED == 1 {
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==2 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==3 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                }
+            } else if DB==0 && IB > 0 {
+                IB = IB-1;
+                if MODE==1 {
+                    pwm.set_duty(Channel::C2, BREATHING_TABLE[IB]);
+                } else {
+                    pwm.set_duty(Channel::C2, 480);
+                }
+                if SPEED == 1 {
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==2 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==3 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                }
+            } else if DB==0 && IB<=0{
+                DB = 1;
+                IB = IB + 1;
+                if MODE==1 {
+                    pwm.set_duty(Channel::C2, BREATHING_TABLE[IB]);
+                } else {
+                    pwm.set_duty(Channel::C2, 480);
+                }
+                if SPEED == 1 {
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==2 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==3 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                }
+            }
+        //};
+        
+        //unsafe{// this is for LED C
+            if DC ==1 && IC < 127 {
+                IC = IC + 1;
+                if MODE==1 {
+                    pwm.set_duty(Channel::C3, BREATHING_TABLE[IC]);
+                } else {
+                    pwm.set_duty(Channel::C3, 1);
+                }
+                if SPEED == 1 {
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==2 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==3 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                }
+            } else if DC==1 && IC >= 127 {
+                DC = 0;
+                IC= IC - 1;
+                if MODE==1 {
+                    pwm.set_duty(Channel::C3, BREATHING_TABLE[IC]);
+                } else {
+                    pwm.set_duty(Channel::C3, 1);
+                }
+                if SPEED == 1 {
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==2 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==3 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                }
+            } else if DC==0 && IC > 0 {
+                IC = IC-1;
+                if MODE==1 {
+                    pwm.set_duty(Channel::C3, BREATHING_TABLE[IC]);
+                } else {
+                    pwm.set_duty(Channel::C3, 480);
+                }
+                if SPEED == 1 {
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==2 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==3 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                }
+            } else if DC==0 && IC<=0 {
+                DC = 1;
+                IC = IC + 1;
+                if MODE==1 {
+                    pwm.set_duty(Channel::C3, BREATHING_TABLE[IC]);
+                } else {
+                    pwm.set_duty(Channel::C3, 480);
+                }
+                if SPEED == 1 {
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==2 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==3 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                }
+            }  
+        //};
+
+        //unsafe{// this is for LED D
+            if DD==1 && ID < 127 {
+                ID = ID + 1;
+                if MODE==1 {
+                    pwm.set_duty(Channel::C4, BREATHING_TABLE[ID]);
+                } else {
+                    pwm.set_duty(Channel::C4, 1);
+                }
+                if SPEED == 1 {
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==2 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==3 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                }
+            } else if DD==1 && ID >= 127 {
+                DD = 0;
+                ID= ID - 1;
+                if MODE==1 {
+                    pwm.set_duty(Channel::C4, BREATHING_TABLE[ID]);
+                } else {
+                    pwm.set_duty(Channel::C4, 1);
+                }
+                if SPEED == 1 {
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==2 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==3 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                }
+            } else if DD==0 && ID > 0 {
+                ID = ID-1;
+                if MODE==1 {
+                    pwm.set_duty(Channel::C4, BREATHING_TABLE[ID]);
+                } else {
+                    pwm.set_duty(Channel::C4, 480);
+                }
+                if SPEED == 1 {
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==2 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==3 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                }
+            } else if DD==0 && ID<=0{
+                DD = 1;
+                ID = ID + 1;
+                if MODE==1 {
+                    pwm.set_duty(Channel::C4, BREATHING_TABLE[ID]);
+                } else {
+                    pwm.set_duty(Channel::C4, 480);
+                }
+                if SPEED == 1 {
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==2 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                } else if SPEED==3 {
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                    block!(timer.wait()).unwrap();
+                }
+            }
+        };
+
+
+    }
+}
+
+struct person{
+    name: String::<'static>,;
+    age:u8;
 }
