@@ -549,8 +549,3 @@ fn main() -> ! {
 
     }
 }
-
-struct person{
-    name: String::<'static>,;
-    age:u8;
-}
